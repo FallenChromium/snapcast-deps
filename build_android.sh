@@ -1,5 +1,6 @@
 #!/bin/bash
 
+set -xeo pipefail
 if [ -z "$NDK_DIR" ]; then
   echo "Please set NDK_DIR to the Android NDK folder"
   exit 1
@@ -13,26 +14,31 @@ function prepare
         ARCH="x86"
         CPPFLAGS="-DLITTLE_ENDIAN=1234 -DBIG_ENDIAN=4321 -DBYTE_ORDER=LITTLE_ENDIAN"
         TARGET="i686-linux-android"
-        API=19
+        API=24
     elif [ "$1" = "x86_64" ] ; then
         ARCH="x86_64"
 	    CPPFLAGS="-DLITTLE_ENDIAN=1234 -DBIG_ENDIAN=4321 -DBYTE_ORDER=LITTLE_ENDIAN"
 	    TARGET="x86_64-linux-android"
-	    API=21
+	    API=24
     elif [ "$1" = "armeabi-v7a" ] ; then
         ARCH="arm"
 	    CPPFLAGS="-U_ARM_ASSEM_"
         TARGET="armv7a-linux-androideabi"
-	    API=19
+	    API=24
     elif [ "$1" = "arm64-v8a" ] ; then
         ARCH="aarch64"
 	    CPPFLAGS="-U_ARM_ASSEM_ -DLITTLE_ENDIAN=1234 -DBIG_ENDIAN=4321 -DBYTE_ORDER=LITTLE_ENDIAN"
 	    TARGET="aarch64-linux-android"
-	    API=21
+	    API=24
     fi    
-	
-	TOOLCHAIN="${NDK_DIR}/toolchains/llvm/prebuilt/linux-x86_64"
-    CC="${TOOLCHAIN}/bin/${TARGET}${API}-clang"
+# check vars needed to construct the toolchain path
+. "$NDK_DIR/build/tools/ndk_bin_common.sh"
+	TOOLCHAIN="${NDK_DIR}/toolchains/llvm/prebuilt/$HOST_TAG"
+	if [ ! -d "$TOOLCHAIN" ] ; then
+	    echo "Toolchain directory '${TOOLCHAIN}' does not exist. Please check NDK_DIR and ensure that it points to a valid Android NDK."
+	    exit 1
+    fi
+  CC="${TOOLCHAIN}/bin/${TARGET}${API}-clang"
 	CXX="${TOOLCHAIN}/bin/${TARGET}${API}-clang++"
 	SYSROOT="${BASEDIR}/build/android/${TARGET}"
 	CPPFLAGS="-I${TOOLCHAIN}/sysroot/usr/include -I${SYSROOT}/usr/local/include ${CPPFLAGS}"
@@ -47,6 +53,8 @@ function prepare
 	export CC=${CC}
 	export CXX=${CXX}
 	export CPPFLAGS=${CPPFLAGS}
+	export API=${API}
+	export ARCH=${ARCH}
 }
 
 function build_flac 
@@ -55,7 +63,7 @@ function build_flac
 
 	cd ${BASEDIR}/externals/flac
 	./autogen.sh
-	./configure --host=${ARCH} --disable-ogg --disable-asm-optimizations --disable-doxygen-docs --disable-xmms-plugin --disable-examples --prefix=${SYSROOT}/usr/local/
+	./configure --host="$(uname -m)" --build="$ARCH" --disable-ogg --disable-asm-optimizations --disable-doxygen-docs --disable-xmms-plugin --disable-examples --prefix=${SYSROOT}/usr/local/
 	make -j 4
 	make install
 	make clean
@@ -69,7 +77,7 @@ function build_ogg
 
 	cd ${BASEDIR}/externals/ogg
 	./autogen.sh
-	./configure --host=${ARCH} --with-pic --prefix=${SYSROOT}/usr/local/
+	./configure --host="$(uname -m)" --build="$ARCH" --with-pic --prefix=${SYSROOT}/usr/local/
 	make -j 4
 	make install
 	make clean
@@ -82,7 +90,7 @@ function build_opus
 
     cd ${BASEDIR}/externals/opus
 	./autogen.sh
-	./configure --host=${ARCH} --prefix=${SYSROOT}/usr/local/
+	./configure --host="$(uname -m)" --build="$ARCH" --prefix=${SYSROOT}/usr/local/
 	make -j 4
 	make install
 	make clean
@@ -95,8 +103,8 @@ function build_tremor
     prepare $1
 
 	cd ${BASEDIR}/externals/tremor
-	./autogen.sh
-	./configure --host=${ARCH} --with-pic --prefix=${SYSROOT}/usr/local/ --with-ogg=${SYSROOT}/usr/local/ --with-ogg-libraries=${SYSROOT}/usr/local/lib --with-ogg-includes=${SYSROOT}/usr/local/include/ogg
+	OGG_LIBS="${SYSROOT}/usr/local/lib -logg" OGG_CFLAGS="-I${SYSROOT}/usr/local/include/ogg" ./autogen.sh --host="$(uname -m)" --build="$ARCH" --with-pic --prefix=${SYSROOT}/usr/local/ --with-ogg=${SYSROOT}/usr/local/ --with-ogg-libraries=${SYSROOT}/usr/local/lib --with-ogg-includes=${SYSROOT}/usr/local/include/ogg
+	OGG_LIBS="${SYSROOT}/usr/local/lib -logg" OGG_CFLAGS="-I${SYSROOT}/usr/local/include/ogg" ./configure --host="$(uname -m)" --build="$ARCH" --with-pic --prefix=${SYSROOT}/usr/local/ --with-ogg=${SYSROOT}/usr/local/ --with-ogg-libraries=${SYSROOT}/usr/local/lib --with-ogg-includes=${SYSROOT}/usr/local/include/ogg
 	make -j 4
 	make install
 	make clean
@@ -128,9 +136,13 @@ function build_oboe
     prepare $1
 
 	cd ${BASEDIR}/externals/oboe
-	mkdir build
+	mkdir -p build
 	cd build
-	cmake -DCMAKE_BUILD_TYPE=Release ..
+	cmake \
+	  -DCMAKE_TOOLCHAIN_FILE=$NDK_DIR/build/cmake/android.toolchain.cmake \
+    -DANDROID_ABI=$ARCH \
+    -DANDROID_PLATFORM=$API \
+    -DCMAKE_BUILD_TYPE=Release ..
 	make -j 4 VERBOSE=1
 	make DESTDIR=${SYSROOT} install
 	make clean
@@ -143,9 +155,13 @@ function build_soxr
     prepare $1
 
 	cd ${BASEDIR}/externals/soxr
-	mkdir build
+	mkdir -p build
 	cd build
-	cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DWITH_OPENMP=OFF ..
+	cmake \
+    -DCMAKE_TOOLCHAIN_FILE=$NDK_DIR/build/cmake/android.toolchain.cmake \
+    -DANDROID_ABI=$ARCH \
+    -DANDROID_PLATFORM=$API \
+    -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DWITH_OPENMP=OFF ..
 	make -j 4 VERBOSE=1
 	make DESTDIR=${SYSROOT} install
 	make clean
@@ -159,7 +175,7 @@ function build_vorbis
 
     cd ${BASEDIR}/externals/vorbis
 	./autogen.sh
-	./configure --host=${ARCH} --prefix=${SYSROOT}/usr/local/
+	./configure --host="$(uname -m)" --build="$ARCH" --prefix=${SYSROOT}/usr/local/
 	make -j 4
 	make install
 	make clean
@@ -205,5 +221,5 @@ cd ${BASEDIR}
 ./make_aar.sh build/aar/ tremor 1.0.1 ./build/android/ libvorbisidec.a tremor
 ./make_aar.sh build/aar/ oboe 1.9.0 ./build/android/ liboboe.a oboe
 ./make_aar.sh build/aar/ soxr 0.1.3 ./build/android/ libsoxr.a soxr.h
-./make_aar.sh build/aar/ vorbis 1.3.7 ./build/android/ libvorbis.a vorbis
+./make_aar.sh build/aar/ vorbis 1.3.7 ./build/android/ "libvorbis.a;libvorbisenc.a" vorbis
 ./make_aar.sh build/aar/ boost 1.85.0 ./build/android/ "" boost_1_85_0/boost

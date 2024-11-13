@@ -44,11 +44,15 @@ printf '{\n    "schema_version": 1,\n    "name": "%s",\n    "version": "%s",\n  
 printf '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="de.badaix.%s" android:versionCode="1" android:versionName="1.0">\n	<uses-sdk android:minSdkVersion="16" android:targetSdkVersion="29"/>\n</manifest>' $aar_name > $aar_root/AndroidManifest.xml
 
 if [ "$has_libs" = true ] ; then
-    cp "$build_root/x86_64-linux-android/usr/local/lib/$lib" "$aar_libs/android.x86_64/lib$aar_name.a" 
-    cp "$build_root/i686-linux-android/usr/local/lib/$lib" "$aar_libs/android.x86/lib$aar_name.a" 
-    cp "$build_root/armv7a-linux-androideabi/usr/local/lib/$lib" "$aar_libs/android.armeabi-v7a/lib$aar_name.a" 
-    cp "$build_root/aarch64-linux-android/usr/local/lib/$lib" "$aar_libs/android.arm64-v8a/lib$aar_name.a" 
-    cp -r "$build_root/x86_64-linux-android/usr/local/include/$include" "$aar_include/" 
+  IFS=';' read -r -a lib_array <<< "$lib"
+  for lib in "${lib_array[@]}"
+    do
+      cp "$build_root/x86_64-linux-android/usr/local/lib/$lib" "$aar_libs/android.x86_64/lib$aar_name.a"
+      cp "$build_root/i686-linux-android/usr/local/lib/$lib" "$aar_libs/android.x86/lib$aar_name.a"
+      cp "$build_root/armv7a-linux-androideabi/usr/local/lib/$lib" "$aar_libs/android.armeabi-v7a/lib$aar_name.a"
+      cp "$build_root/aarch64-linux-android/usr/local/lib/$lib" "$aar_libs/android.arm64-v8a/lib$aar_name.a"
+      cp -r "$build_root/x86_64-linux-android/usr/local/include/$include" "$aar_include/"
+    done
 else
     # the boost hack
     cp -r "$include" "$aar_include/" 
